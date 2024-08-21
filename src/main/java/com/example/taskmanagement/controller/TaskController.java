@@ -12,9 +12,14 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.ObjectError;
 import org.springframework.web.bind.annotation.*;
+import java.security.Principal;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -29,7 +34,7 @@ public class TaskController {
     private UserService userService;
 
     @PostMapping
-    public ResponseEntity<?> createTask(@Valid @RequestBody Task task, BindingResult bindingResult) {
+    public ResponseEntity<?> createTask(@Valid @RequestBody Task task, BindingResult bindingResult, Principal principal) {
         if (bindingResult.hasErrors()) {
             String errors = bindingResult.getAllErrors().stream()
                     .map(ObjectError::getDefaultMessage)
@@ -37,7 +42,8 @@ public class TaskController {
             return new ResponseEntity<>(errors, HttpStatus.BAD_REQUEST);
         }
 
-        Task createdTask = taskService.createTask(task);
+        User author = userService.getUserByEmail(principal.getName()).orElseThrow(() -> new RuntimeException("User not found"));
+        Task createdTask = taskService.createTask(task, author);
         return new ResponseEntity<>(createdTask, HttpStatus.CREATED);
     }
 
@@ -48,28 +54,8 @@ public class TaskController {
                 .orElseGet(() -> new ResponseEntity<>(HttpStatus.NOT_FOUND));
     }
 
-    @GetMapping("/author/{authorId}")
-    public ResponseEntity<Page<Task>> getTasksByAuthor(@PathVariable Long authorId, Pageable pageable) {
-        Optional<User> author = userService.getUserById(authorId);
-        if (author.isPresent()) {
-            Page<Task> tasks = taskService.getTasksByAuthor(author.get(), pageable);
-            return ResponseEntity.ok(tasks);
-        }
-        return new ResponseEntity<>(HttpStatus.NOT_FOUND);
-    }
-
-    @GetMapping("/assignee/{assigneeId}")
-    public ResponseEntity<Page<Task>> getTasksByAssignee(@PathVariable Long assigneeId, Pageable pageable) {
-        Optional<User> assignee = userService.getUserById(assigneeId);
-        if (assignee.isPresent()) {
-            Page<Task> tasks = taskService.getTasksByAssignee(assignee.get(), pageable);
-            return ResponseEntity.ok(tasks);
-        }
-        return new ResponseEntity<>(HttpStatus.NOT_FOUND);
-    }
-
     @PutMapping("/{id}")
-    public ResponseEntity<?> updateTask(@PathVariable Long id, @Valid @RequestBody Task task, BindingResult bindingResult) {
+    public ResponseEntity<?> updateTask(@PathVariable Long id, @Valid @RequestBody Task task, BindingResult bindingResult, Principal principal) {
         if (bindingResult.hasErrors()) {
             String errors = bindingResult.getAllErrors().stream()
                     .map(ObjectError::getDefaultMessage)
@@ -77,26 +63,33 @@ public class TaskController {
             return new ResponseEntity<>(errors, HttpStatus.BAD_REQUEST);
         }
 
-        Optional<Task> updatedTask = taskService.updateTask(id, task);
+        User currentUser = userService.getUserByEmail(principal.getName()).orElseThrow(() -> new RuntimeException("User not found"));
+        Optional<Task> updatedTask = taskService.updateTask(id, task, currentUser);
         return updatedTask.map(ResponseEntity::ok)
                 .orElseGet(() -> new ResponseEntity<>(HttpStatus.NOT_FOUND));
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> deleteTask(@PathVariable Long id) {
-        if (taskService.deleteTask(id)) {
+    public ResponseEntity<Void> deleteTask(@PathVariable Long id, Principal principal) {
+        User currentUser = userService.getUserByEmail(principal.getName()).orElseThrow(() -> new RuntimeException("User not found"));
+        if (taskService.deleteTask(id, currentUser)) {
             return new ResponseEntity<>(HttpStatus.NO_CONTENT);
         }
         return new ResponseEntity<>(HttpStatus.NOT_FOUND);
     }
 
     @PatchMapping("/{id}/status")
-    public ResponseEntity<Task> updateTaskStatus(@PathVariable Long id, @RequestParam Status status) {
+    public ResponseEntity<Task> updateTaskStatus(@PathVariable Long id, @RequestParam Status status, @AuthenticationPrincipal UserDetails userDetails) {
+        // Получаем текущего пользователя
+        User currentUser = userService.getUserByEmail(userDetails.getUsername()).orElseThrow(() -> new UsernameNotFoundException("User not found"));
+
         try {
-            Task updatedTask = taskService.updateTaskStatus(id, status);
+            Task updatedTask = taskService.updateTaskStatus(id, currentUser, status);
             return ResponseEntity.ok(updatedTask);
         } catch (ResourceNotFoundException e) {
             return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+        } catch (AccessDeniedException e) {
+            return new ResponseEntity<>(HttpStatus.FORBIDDEN);
         }
     }
 }
