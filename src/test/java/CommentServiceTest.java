@@ -1,8 +1,10 @@
 import com.example.taskmanagement.model.Comment;
 import com.example.taskmanagement.model.Task;
+import com.example.taskmanagement.model.User;
 import com.example.taskmanagement.repository.CommentRepository;
 import com.example.taskmanagement.service.CommentService;
 import com.example.taskmanagement.service.TaskService;
+import com.example.taskmanagement.service.UserService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
@@ -22,6 +24,9 @@ public class CommentServiceTest {
     @Mock
     private TaskService taskService;
 
+    @Mock
+    private UserService userService;
+
     @InjectMocks
     private CommentService commentService;
 
@@ -40,7 +45,6 @@ public class CommentServiceTest {
         assertNotNull(createdComment);
         verify(commentRepository).save(comment);
     }
-
     @Test
     public void getCommentsByTask_Success() {
         Long taskId = 1L;
@@ -90,10 +94,13 @@ public class CommentServiceTest {
         Long id = 1L;
         Comment existingComment = new Comment();
         Comment newComment = new Comment();
+        User currentUser = new User();
+        existingComment.setAuthor(currentUser);
+
         when(commentRepository.findById(id)).thenReturn(Optional.of(existingComment));
         when(commentRepository.save(existingComment)).thenReturn(existingComment);
 
-        Optional<Comment> updatedComment = commentService.updateComment(id, newComment);
+        Optional<Comment> updatedComment = commentService.updateComment(id, newComment, currentUser);
 
         assertTrue(updatedComment.isPresent());
         verify(commentRepository).save(existingComment);
@@ -103,9 +110,11 @@ public class CommentServiceTest {
     public void updateComment_NotFound() {
         Long id = 1L;
         Comment newComment = new Comment();
+        User currentUser = new User();
+
         when(commentRepository.findById(id)).thenReturn(Optional.empty());
 
-        Optional<Comment> updatedComment = commentService.updateComment(id, newComment);
+        Optional<Comment> updatedComment = commentService.updateComment(id, newComment, currentUser);
 
         assertFalse(updatedComment.isPresent());
     }
@@ -113,23 +122,30 @@ public class CommentServiceTest {
     @Test
     public void deleteComment_Success() {
         Long id = 1L;
+        User currentUser = new User();
+        Comment existingComment = new Comment();
+        existingComment.setAuthor(currentUser);
+
+        when(commentRepository.findById(id)).thenReturn(Optional.of(existingComment));
         when(commentRepository.existsById(id)).thenReturn(true);
 
-        boolean result = commentService.deleteComment(id);
+        boolean result = commentService.deleteComment(id, currentUser);
 
         assertTrue(result);
         verify(commentRepository).deleteById(id);
     }
 
+
     @Test
     public void deleteComment_NotFound() {
         Long id = 1L;
-        when(commentRepository.existsById(id)).thenReturn(false);
+        User currentUser = new User();
 
-        boolean result = commentService.deleteComment(id);
+        when(commentRepository.findById(id)).thenReturn(Optional.empty());
+
+        boolean result = commentService.deleteComment(id, currentUser);
 
         assertFalse(result);
         verify(commentRepository, never()).deleteById(id);
     }
 }
-
