@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.ObjectError;
 import java.security.Principal;
+import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -132,5 +133,7 @@ public class TaskService {
         Page<Task> tasks = taskRepository.findByAssignee(assignee, pageable);
         return new ResponseEntity<>(tasks, HttpStatus.OK);
     }
-
+    public List<Task> getAllTasks() {
+        return taskRepository.findAll();
+    }
 }
