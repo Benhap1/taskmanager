@@ -1,5 +1,6 @@
 package com.example.taskmanagement.service;
 
+import com.example.taskmanagement.model.Role;
 import com.example.taskmanagement.model.Status;
 import com.example.taskmanagement.model.Task;
 import com.example.taskmanagement.model.User;
@@ -112,7 +113,6 @@ public class TaskService {
     }
 
 
-    // Метод для фильтрации задач по автору
     public ResponseEntity<Page<Task>> getTasksByAuthor(String authorEmail, Pageable pageable) {
         ResponseEntity<User> userResponse = userService.getUserByEmail(authorEmail);
         if (userResponse.getStatusCode() == HttpStatus.NOT_FOUND) {
@@ -123,7 +123,7 @@ public class TaskService {
         return new ResponseEntity<>(tasks, HttpStatus.OK);
     }
 
-    // Метод для фильтрации задач по исполнителю
+
     public ResponseEntity<Page<Task>> getTasksByAssignee(String assigneeEmail, Pageable pageable) {
         ResponseEntity<User> userResponse = userService.getUserByEmail(assigneeEmail);
         if (userResponse.getStatusCode() == HttpStatus.NOT_FOUND) {
@@ -135,5 +135,38 @@ public class TaskService {
     }
     public List<Task> getAllTasks() {
         return taskRepository.findAll();
+    }
+
+    public ResponseEntity<?> assignTaskToUser(Long taskId, String assigneeEmail, Principal principal) {
+        Optional<Task> taskOpt = taskRepository.findById(taskId);
+        if (!taskOpt.isPresent()) {
+            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+        }
+
+        Task task = taskOpt.get();
+
+        ResponseEntity<User> userResponse = userService.getUserByEmail(principal.getName());
+        if (userResponse.getStatusCode() == HttpStatus.NOT_FOUND) {
+            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+        }
+        User currentUser = userResponse.getBody();
+
+        if (!task.getAuthor().equals(currentUser)) {
+            return new ResponseEntity<>(HttpStatus.FORBIDDEN);
+        }
+
+        ResponseEntity<User> assigneeResponse = userService.getUserByEmail(assigneeEmail);
+        if (assigneeResponse.getStatusCode() == HttpStatus.NOT_FOUND) {
+            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+        }
+        User assignee = assigneeResponse.getBody();
+
+        if (assignee.getRole() != Role.ASSIGNEE) {
+            return new ResponseEntity<>("User does not have the ASSIGNEE role", HttpStatus.FORBIDDEN);
+        }
+
+        task.setAssignee(assignee);
+        taskRepository.save(task);
+        return new ResponseEntity<>(task, HttpStatus.OK);
     }
 }

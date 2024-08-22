@@ -79,4 +79,9 @@ public class TaskController {
         return new ResponseEntity<>(tasks, HttpStatus.OK);
     }
 
+    @PatchMapping("/{id}/assign")
+    public ResponseEntity<?> assignTaskToUser(@PathVariable Long id, @RequestParam String assigneeEmail, Principal principal) {
+        return taskService.assignTaskToUser(id, assigneeEmail, principal);
+    }
+
 }
