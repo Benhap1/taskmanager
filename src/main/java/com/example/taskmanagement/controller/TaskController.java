@@ -5,6 +5,9 @@ import com.example.taskmanagement.model.Task;
 import com.example.taskmanagement.service.TaskService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -46,5 +49,26 @@ public class TaskController {
     @PatchMapping("/{id}/status")
     public ResponseEntity<Task> updateTaskStatus(@PathVariable Long id, @RequestParam Status status, @AuthenticationPrincipal UserDetails userDetails) {
         return taskService.updateTaskStatus(id, status, userDetails);
+    }
+
+
+    @GetMapping("/author")
+    public ResponseEntity<Page<Task>> getTasksByAuthor(
+            @RequestParam String authorEmail,
+            @RequestParam int page,
+            @RequestParam int size) {
+
+        Pageable pageable = PageRequest.of(page, size);
+        return taskService.getTasksByAuthor(authorEmail, pageable);
+    }
+
+    @GetMapping("/assignee")
+    public ResponseEntity<Page<Task>> getTasksByAssignee(
+            @RequestParam String assigneeEmail,
+            @RequestParam int page,
+            @RequestParam int size) {
+
+        Pageable pageable = PageRequest.of(page, size);
+        return taskService.getTasksByAssignee(assigneeEmail, pageable);
     }
 }

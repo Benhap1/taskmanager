@@ -5,6 +5,8 @@ import com.example.taskmanagement.model.Task;
 import com.example.taskmanagement.model.User;
 import com.example.taskmanagement.repository.TaskRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -107,4 +109,28 @@ public class TaskService {
         }
         return new ResponseEntity<>(HttpStatus.NOT_FOUND);
     }
+
+
+    // Метод для фильтрации задач по автору
+    public ResponseEntity<Page<Task>> getTasksByAuthor(String authorEmail, Pageable pageable) {
+        ResponseEntity<User> userResponse = userService.getUserByEmail(authorEmail);
+        if (userResponse.getStatusCode() == HttpStatus.NOT_FOUND) {
+            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+        }
+        User author = userResponse.getBody();
+        Page<Task> tasks = taskRepository.findByAuthor(author, pageable);
+        return new ResponseEntity<>(tasks, HttpStatus.OK);
+    }
+
+    // Метод для фильтрации задач по исполнителю
+    public ResponseEntity<Page<Task>> getTasksByAssignee(String assigneeEmail, Pageable pageable) {
+        ResponseEntity<User> userResponse = userService.getUserByEmail(assigneeEmail);
+        if (userResponse.getStatusCode() == HttpStatus.NOT_FOUND) {
+            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+        }
+        User assignee = userResponse.getBody();
+        Page<Task> tasks = taskRepository.findByAssignee(assignee, pageable);
+        return new ResponseEntity<>(tasks, HttpStatus.OK);
+    }
+
 }
