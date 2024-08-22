@@ -1,16 +1,21 @@
 package com.example.taskmanagement.service;
 
-import com.example.taskmanagement.exception.ResourceNotFoundException;
 import com.example.taskmanagement.model.Status;
 import com.example.taskmanagement.model.Task;
 import com.example.taskmanagement.model.User;
 import com.example.taskmanagement.repository.TaskRepository;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
+import org.springframework.validation.BindingResult;
+import org.springframework.validation.ObjectError;
+import java.security.Principal;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Service
 public class TaskService {
@@ -21,53 +26,85 @@ public class TaskService {
     @Autowired
     private UserService userService;
 
-    public Task createTask(Task task, User author) {
+    public ResponseEntity<?> createTask(Task task, BindingResult bindingResult, Principal principal) {
+        if (bindingResult.hasErrors()) {
+            String errors = bindingResult.getAllErrors().stream()
+                    .map(ObjectError::getDefaultMessage)
+                    .collect(Collectors.joining(", "));
+            return new ResponseEntity<>(errors, HttpStatus.BAD_REQUEST);
+        }
+
+        ResponseEntity<User> userResponse = userService.getUserByEmail(principal.getName());
+        if (userResponse.getStatusCode() == HttpStatus.NOT_FOUND) {
+            throw new RuntimeException("User not found");
+        }
+        User author = userResponse.getBody();
+
         task.setAuthor(author);
-        return taskRepository.save(task);
+        Task createdTask = taskRepository.save(task);
+        return new ResponseEntity<>(createdTask, HttpStatus.CREATED);
     }
 
     public Optional<Task> getTaskById(Long taskId) {
         return taskRepository.findById(taskId);
     }
+    public ResponseEntity<?> updateTask(Long id, Task task, BindingResult bindingResult, Principal principal) {
+        if (bindingResult.hasErrors()) {
+            String errors = bindingResult.getAllErrors().stream()
+                    .map(ObjectError::getDefaultMessage)
+                    .collect(Collectors.joining(", "));
+            return new ResponseEntity<>(errors, HttpStatus.BAD_REQUEST);
+        }
 
-    public Page<Task> getTasksByAuthor(User author, Pageable pageable) {
-        return taskRepository.findByAuthor(author, pageable);
-    }
+        ResponseEntity<User> userResponse = userService.getUserByEmail(principal.getName());
+        if (userResponse.getStatusCode() == HttpStatus.NOT_FOUND) {
+            throw new RuntimeException("User not found");
+        }
+        User currentUser = userResponse.getBody();
 
-    public Page<Task> getTasksByAssignee(User assignee, Pageable pageable) {
-        return taskRepository.findByAssignee(assignee, pageable);
-    }
-
-    public Optional<Task> updateTask(Long id, Task task, User currentUser) {
-        Optional<Task> existingTask = taskRepository.findById(id);
-        if (existingTask.isPresent() && (existingTask.get().getAuthor().equals(currentUser))) {
+        Optional<Task> existingTaskOpt = taskRepository.findById(id);
+        if (existingTaskOpt.isPresent() && existingTaskOpt.get().getAuthor().equals(currentUser)) {
             task.setId(id);
             task.setAuthor(currentUser);
-            return Optional.of(taskRepository.save(task));
+            Task updatedTask = taskRepository.save(task);
+            return new ResponseEntity<>(updatedTask, HttpStatus.OK);
         }
-        return Optional.empty();
+        return new ResponseEntity<>(HttpStatus.NOT_FOUND);
     }
 
-    public boolean deleteTask(Long id, User currentUser) {
-        Optional<Task> task = taskRepository.findById(id);
-        if (task.isPresent() && task.get().getAuthor().equals(currentUser)) {
+    public ResponseEntity<Void> deleteTask(Long id, Principal principal) {
+        ResponseEntity<User> userResponse = userService.getUserByEmail(principal.getName());
+        if (userResponse.getStatusCode() == HttpStatus.NOT_FOUND) {
+            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+        }
+        User currentUser = userResponse.getBody();
+
+        Optional<Task> existingTaskOpt = taskRepository.findById(id);
+        if (existingTaskOpt.isPresent() && existingTaskOpt.get().getAuthor().equals(currentUser)) {
             taskRepository.deleteById(id);
-            return true;
+            return new ResponseEntity<>(HttpStatus.NO_CONTENT);
         }
-        return false;
+        return new ResponseEntity<>(HttpStatus.NOT_FOUND);
     }
 
-    public Task updateTaskStatus(Long taskId, User currentUser, Status status) {
+    public ResponseEntity<Task> updateTaskStatus(Long taskId, Status status, UserDetails userDetails) {
+        ResponseEntity<User> userResponse = userService.getUserByEmail(userDetails.getUsername());
+        if (userResponse.getStatusCode() == HttpStatus.NOT_FOUND) {
+            throw new UsernameNotFoundException("User not found");
+        }
+        User currentUser = userResponse.getBody();
+
         Optional<Task> optionalTask = taskRepository.findById(taskId);
         if (optionalTask.isPresent()) {
             Task task = optionalTask.get();
             if (task.getAssignee() != null && task.getAssignee().equals(currentUser)) {
                 task.setStatus(status);
-                return taskRepository.save(task);
+                Task updatedTask = taskRepository.save(task);
+                return new ResponseEntity<>(updatedTask, HttpStatus.OK);
             } else {
                 throw new AccessDeniedException("User is not the assignee of this task");
             }
         }
-        throw new ResourceNotFoundException("Task not found with id " + taskId);
+        return new ResponseEntity<>(HttpStatus.NOT_FOUND);
     }
 }

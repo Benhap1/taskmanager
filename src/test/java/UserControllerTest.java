@@ -1,136 +1,159 @@
 import com.example.taskmanagement.controller.UserController;
 import com.example.taskmanagement.model.Role;
 import com.example.taskmanagement.model.User;
-import com.example.taskmanagement.service.JwtService;
 import com.example.taskmanagement.service.UserService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import java.util.Optional;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.BindingResult;
+import org.springframework.validation.ObjectError;
+import java.util.Collections;
+import java.util.stream.Collectors;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.*;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-public class UserControllerTest {
+class UserControllerTest {
+
+    @InjectMocks
+    private UserController userController;
 
     @Mock
     private UserService userService;
 
     @Mock
-    private JwtService jwtService;
-
-    @InjectMocks
-    private UserController userController;
-
-    private MockMvc mockMvc;
+    private BindingResult bindingResult;
 
     @BeforeEach
-    public void setUp() {
+    void setUp() {
         MockitoAnnotations.openMocks(this);
-        mockMvc = MockMvcBuilders.standaloneSetup(userController).build();
     }
 
     @Test
-    public void registerUser_Success() throws Exception {
-        User user = new User(null, "email@example.com", "password", Role.ASSIGNEE);
-        when(userService.registerUser(any(User.class))).thenReturn(user);
+    void testRegisterUser_Success() {
+        // Настройка объекта User
+        User user = new User();
+        user.setEmail("test@example.com");
+        user.setPassword("password");
+        user.setRole(Role.ASSIGNEE);
 
-        mockMvc.perform(post("/users/register")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"email@example.com\",\"password\":\"password\",\"role\":\"ASSIGNEE\"}"))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.email").value("email@example.com"))
-                .andExpect(jsonPath("$.password").value("password"))
-                .andExpect(jsonPath("$.role").value("ASSIGNEE"));
+        when(bindingResult.hasErrors()).thenReturn(false);
+
+        when(userService.registerUser(any(User.class), any(BindingResult.class)))
+                .thenAnswer(invocation -> {
+                    User inputUser = invocation.getArgument(0);
+                    // Создаем User с ID и с закодированным паролем
+                    User createdUser = new User();
+                    createdUser.setId(1L); // Пример ID
+                    createdUser.setEmail(inputUser.getEmail());
+                    createdUser.setPassword("encodedPassword"); // Имитация закодированного пароля
+                    createdUser.setRole(inputUser.getRole());
+                    return new ResponseEntity<>(createdUser, HttpStatus.CREATED);
+                });
+
+        ResponseEntity<?> response = userController.registerUser(user, bindingResult);
+
+        assertEquals(HttpStatus.CREATED, response.getStatusCode());
+        User responseBody = (User) response.getBody();
+        assertEquals(user.getEmail(), responseBody.getEmail());
+        assertEquals(user.getRole(), responseBody.getRole());
+        assertEquals(1L, responseBody.getId());
+        assertEquals("encodedPassword", responseBody.getPassword());
     }
 
     @Test
-    public void loginUser_Success() throws Exception {
-        String jwt = "jwtToken";
-        when(userService.loginUser(anyString(), anyString())).thenReturn(Optional.of(jwt));
+    void testGetUserById_Success() {
+        User user = new User();
+        user.setId(1L);
+        user.setEmail("test@example.com");
 
-        mockMvc.perform(post("/users/login")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"email@example.com\",\"password\":\"password\"}"))
-                .andExpect(status().isOk())
-                .andExpect(content().string(jwt));
+        when(userService.getUserById(1L)).thenReturn(new ResponseEntity<>(user, HttpStatus.OK));
+
+        ResponseEntity<User> response = userController.getUserById(1L);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(user, response.getBody());
     }
 
     @Test
-    public void loginUser_Failure() throws Exception {
-        when(userService.loginUser(anyString(), anyString())).thenReturn(Optional.empty());
+    void testGetUserById_NotFound() {
+        when(userService.getUserById(1L)).thenReturn(new ResponseEntity<>(HttpStatus.NOT_FOUND));
 
-        mockMvc.perform(post("/users/login")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"email@example.com\",\"password\":\"password\"}"))
-                .andExpect(status().isUnauthorized())
-                .andExpect(content().string("Invalid credentials"));
+        ResponseEntity<User> response = userController.getUserById(1L);
+
+        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
     }
 
     @Test
-    public void getUserById_Success() throws Exception {
-        Long id = 1L;
-        User user = new User(id, "email@example.com", "password", Role.ASSIGNEE);
-        when(userService.getUserById(id)).thenReturn(Optional.of(user));
+    void testGetUserByEmail_Success() {
+        User user = new User();
+        user.setEmail("test@example.com");
 
-        mockMvc.perform(get("/users/{id}", id))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.email").value("email@example.com"));
+        when(userService.getUserByEmail("test@example.com")).thenReturn(new ResponseEntity<>(user, HttpStatus.OK));
+
+        ResponseEntity<User> response = userController.getUserByEmail("test@example.com");
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(user, response.getBody());
     }
 
     @Test
-    public void getUserById_NotFound() throws Exception {
-        Long id = 1L;
-        when(userService.getUserById(id)).thenReturn(Optional.empty());
+    void testUpdateUser_Success() {
+        User user = new User();
+        user.setId(1L);
+        user.setEmail("updated@example.com");
+        when(bindingResult.hasErrors()).thenReturn(false);
+        when(userService.updateUser(anyLong(), any(User.class), any(BindingResult.class)))
+                .thenAnswer(invocation -> {
+                    User updatedUser = invocation.getArgument(1); // Получаем User из аргументов
+                    return new ResponseEntity<>(updatedUser, HttpStatus.OK);
+                });
 
-        mockMvc.perform(get("/users/{id}", id))
-                .andExpect(status().isNotFound());
+        ResponseEntity<?> response = userController.updateUser(1L, user, bindingResult);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(user, response.getBody());
     }
 
     @Test
-    public void updateUser_Success() throws Exception {
-        Long id = 1L;
-        User user = new User(id, "email@example.com", "password", Role.ASSIGNEE);
-        when(userService.updateUser(eq(id), any(User.class))).thenReturn(Optional.of(user));
-
-        mockMvc.perform(put("/users/{id}", id)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"email@example.com\",\"password\":\"password\",\"role\":\"ASSIGNEE\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.email").value("email@example.com"));
+    void testUpdateUser_BindingErrors() {
+        User user = new User();
+        ObjectError error = new ObjectError("user", "Validation error");
+        when(bindingResult.hasErrors()).thenReturn(true);
+        when(bindingResult.getAllErrors()).thenReturn(Collections.singletonList(error));
+        when(userService.updateUser(anyLong(), any(User.class), any(BindingResult.class)))
+                .thenAnswer(invocation -> {
+                    BindingResult result = invocation.getArgument(2);
+                    if (result.hasErrors()) {
+                        String errors = result.getAllErrors().stream()
+                                .map(ObjectError::getDefaultMessage)
+                                .collect(Collectors.joining(", "));
+                        return new ResponseEntity<>(errors, HttpStatus.BAD_REQUEST);
+                    }
+                    return new ResponseEntity<>(HttpStatus.OK);
+                });
+        ResponseEntity<?> response = userController.updateUser(1L, user, bindingResult);
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        assertEquals("Validation error", response.getBody());
     }
 
     @Test
-    public void updateUser_NotFound() throws Exception {
-        Long id = 1L;
-        when(userService.updateUser(eq(id), any(User.class))).thenReturn(Optional.empty());
+    void testDeleteUser_Success() {
+        when(userService.deleteUser(1L)).thenReturn(new ResponseEntity<>(HttpStatus.NO_CONTENT));
 
-        mockMvc.perform(put("/users/{id}", id)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"email@example.com\",\"password\":\"password\",\"role\":\"ASSIGNEE\"}"))
-                .andExpect(status().isNotFound());
+        ResponseEntity<Void> response = userController.deleteUser(1L);
+
+        assertEquals(HttpStatus.NO_CONTENT, response.getStatusCode());
     }
 
     @Test
-    public void deleteUser_Success() throws Exception {
-        Long id = 1L;
-        when(userService.deleteUser(id)).thenReturn(true);
+    void testDeleteUser_NotFound() {
+        when(userService.deleteUser(1L)).thenReturn(new ResponseEntity<>(HttpStatus.NOT_FOUND));
 
-        mockMvc.perform(delete("/users/{id}", id))
-                .andExpect(status().isNoContent());
-    }
+        ResponseEntity<Void> response = userController.deleteUser(1L);
 
-    @Test
-    public void deleteUser_NotFound() throws Exception {
-        Long id = 1L;
-        when(userService.deleteUser(id)).thenReturn(false);
-
-        mockMvc.perform(delete("/users/{id}", id))
-                .andExpect(status().isNotFound());
+        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
     }
 }

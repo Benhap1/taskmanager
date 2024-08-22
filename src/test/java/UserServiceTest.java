@@ -8,11 +8,14 @@ import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.validation.BindingResult;
 import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -31,6 +34,9 @@ public class UserServiceTest {
     @Mock
     private JwtService jwtService;
 
+    @Mock
+    private BindingResult bindingResult;
+
     @InjectMocks
     private UserService userService;
 
@@ -44,9 +50,12 @@ public class UserServiceTest {
         User user = new User(null, "email@example.com", "password", Role.ASSIGNEE);
         when(passwordEncoder.encode(user.getPassword())).thenReturn("encodedPassword");
         when(userRepository.save(user)).thenReturn(user);
+        when(bindingResult.hasErrors()).thenReturn(false);
 
-        User registeredUser = userService.registerUser(user);
+        ResponseEntity<?> response = userService.registerUser(user, bindingResult);
 
+        assertEquals(HttpStatus.CREATED, response.getStatusCode());
+        User registeredUser = (User) response.getBody();
         assertNotNull(registeredUser);
         assertEquals("encodedPassword", registeredUser.getPassword());
         verify(userRepository).save(user);
@@ -61,10 +70,10 @@ public class UserServiceTest {
         when(authenticationManager.authenticate(any())).thenReturn(authentication);
         when(jwtService.generateToken(userDetails)).thenReturn("jwtToken");
 
-        Optional<String> jwt = userService.loginUser(email, password);
+        ResponseEntity<?> response = userService.loginUser(email, password);
 
-        assertTrue(jwt.isPresent());
-        assertEquals("jwtToken", jwt.get());
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("jwtToken", response.getBody());
     }
 
     @Test
@@ -73,9 +82,10 @@ public class UserServiceTest {
         String password = "wrongPassword";
         when(authenticationManager.authenticate(any())).thenThrow(new RuntimeException("Authentication failed"));
 
-        Optional<String> jwt = userService.loginUser(email, password);
+        ResponseEntity<?> response = userService.loginUser(email, password);
 
-        assertFalse(jwt.isPresent());
+        assertEquals(HttpStatus.UNAUTHORIZED, response.getStatusCode());
+        assertEquals("Invalid credentials", response.getBody());
     }
 
     @Test
@@ -84,10 +94,21 @@ public class UserServiceTest {
         User user = new User(id, "email@example.com", "password", Role.ASSIGNEE);
         when(userRepository.findById(id)).thenReturn(Optional.of(user));
 
-        Optional<User> foundUser = userService.getUserById(id);
+        ResponseEntity<User> response = userService.getUserById(id);
 
-        assertTrue(foundUser.isPresent());
-        assertEquals(id, foundUser.get().getId());
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertTrue(response.getBody() != null && response.getBody().getId().equals(id));
+    }
+
+    @Test
+    public void getUserById_NotFound() {
+        Long id = 1L;
+        when(userRepository.findById(id)).thenReturn(Optional.empty());
+
+        ResponseEntity<User> response = userService.getUserById(id);
+
+        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
+        assertNull(response.getBody());
     }
 
     @Test
@@ -96,11 +117,26 @@ public class UserServiceTest {
         User user = new User(id, "email@example.com", "password", Role.ASSIGNEE);
         when(userRepository.existsById(id)).thenReturn(true);
         when(userRepository.save(user)).thenReturn(user);
+        when(bindingResult.hasErrors()).thenReturn(false);
 
-        Optional<User> updatedUser = userService.updateUser(id, user);
+        ResponseEntity<?> response = userService.updateUser(id, user, bindingResult);
 
-        assertTrue(updatedUser.isPresent());
-        assertEquals(id, updatedUser.get().getId());
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        User updatedUser = (User) response.getBody();
+        assertNotNull(updatedUser);
+        assertEquals(id, updatedUser.getId());
+    }
+
+    @Test
+    public void updateUser_NotFound() {
+        Long id = 1L;
+        User user = new User(id, "email@example.com", "password", Role.ASSIGNEE);
+        when(userRepository.existsById(id)).thenReturn(false);
+        when(bindingResult.hasErrors()).thenReturn(false);
+
+        ResponseEntity<?> response = userService.updateUser(id, user, bindingResult);
+
+        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
     }
 
     @Test
@@ -108,20 +144,20 @@ public class UserServiceTest {
         Long id = 1L;
         when(userRepository.existsById(id)).thenReturn(true);
 
-        boolean result = userService.deleteUser(id);
+        ResponseEntity<Void> response = userService.deleteUser(id);
 
-        assertTrue(result);
+        assertEquals(HttpStatus.NO_CONTENT, response.getStatusCode());
         verify(userRepository).deleteById(id);
     }
 
     @Test
-    public void deleteUser_Failure() {
+    public void deleteUser_NotFound() {
         Long id = 1L;
         when(userRepository.existsById(id)).thenReturn(false);
 
-        boolean result = userService.deleteUser(id);
+        ResponseEntity<Void> response = userService.deleteUser(id);
 
-        assertFalse(result);
+        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
         verify(userRepository, never()).deleteById(id);
     }
 }

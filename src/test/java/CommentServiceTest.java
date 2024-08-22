@@ -2,6 +2,7 @@ import com.example.taskmanagement.model.Comment;
 import com.example.taskmanagement.model.Task;
 import com.example.taskmanagement.model.User;
 import com.example.taskmanagement.repository.CommentRepository;
+import com.example.taskmanagement.repository.UserRepository;
 import com.example.taskmanagement.service.CommentService;
 import com.example.taskmanagement.service.TaskService;
 import com.example.taskmanagement.service.UserService;
@@ -12,6 +13,12 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.validation.BindingResult;
+import org.springframework.validation.ObjectError;
+import java.util.List;
 import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -27,6 +34,12 @@ public class CommentServiceTest {
     @Mock
     private UserService userService;
 
+    @Mock
+    private UserRepository userRepository;
+
+    @Mock
+    private BindingResult bindingResult;
+
     @InjectMocks
     private CommentService commentService;
 
@@ -38,13 +51,34 @@ public class CommentServiceTest {
     @Test
     public void createComment_Success() {
         Comment comment = new Comment();
+        User user = new User();
+        UserDetails userDetails = mock(UserDetails.class);
+        when(userDetails.getUsername()).thenReturn("user@example.com");
+        when(bindingResult.hasErrors()).thenReturn(false);
+        when(userService.getUserByEmail("user@example.com")).thenReturn(new ResponseEntity<>(user, HttpStatus.OK));
         when(commentRepository.save(comment)).thenReturn(comment);
 
-        Comment createdComment = commentService.createComment(comment);
+        ResponseEntity<?> response = commentService.createComment(comment, bindingResult, userDetails);
 
-        assertNotNull(createdComment);
+        assertEquals(HttpStatus.CREATED, response.getStatusCode());
+        assertEquals(comment, response.getBody());
         verify(commentRepository).save(comment);
     }
+
+    @Test
+    public void createComment_BindingResultErrors() {
+        Comment comment = new Comment();
+        UserDetails userDetails = mock(UserDetails.class);
+        when(userDetails.getUsername()).thenReturn("user@example.com");
+        when(bindingResult.hasErrors()).thenReturn(true);
+        when(bindingResult.getAllErrors()).thenReturn(List.of(new ObjectError("field", "error message")));
+
+        ResponseEntity<?> response = commentService.createComment(comment, bindingResult, userDetails);
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        assertEquals("error message", response.getBody());
+    }
+
     @Test
     public void getCommentsByTask_Success() {
         Long taskId = 1L;
@@ -56,6 +90,7 @@ public class CommentServiceTest {
         Optional<Page<Comment>> foundComments = commentService.getCommentsByTask(taskId, Pageable.unpaged());
 
         assertTrue(foundComments.isPresent());
+        assertEquals(comments, foundComments.get());
     }
 
     @Test
@@ -77,6 +112,7 @@ public class CommentServiceTest {
         Optional<Comment> foundComment = commentService.getCommentById(id);
 
         assertTrue(foundComment.isPresent());
+        assertEquals(comment, foundComment.get());
     }
 
     @Test
@@ -88,50 +124,51 @@ public class CommentServiceTest {
 
         assertFalse(foundComment.isPresent());
     }
-
     @Test
-    public void updateComment_Success() {
+    public void updateComment_BindingResultErrors() {
         Long id = 1L;
-        Comment existingComment = new Comment();
         Comment newComment = new Comment();
-        User currentUser = new User();
-        existingComment.setAuthor(currentUser);
+        UserDetails userDetails = mock(UserDetails.class);
+        when(userDetails.getUsername()).thenReturn("user@example.com");
+        when(bindingResult.hasErrors()).thenReturn(true);
+        when(bindingResult.getAllErrors()).thenReturn(List.of(new ObjectError("field", "error message")));
 
-        when(commentRepository.findById(id)).thenReturn(Optional.of(existingComment));
-        when(commentRepository.save(existingComment)).thenReturn(existingComment);
+        ResponseEntity<?> response = commentService.updateComment(id, newComment, bindingResult, userDetails);
 
-        Optional<Comment> updatedComment = commentService.updateComment(id, newComment, currentUser);
-
-        assertTrue(updatedComment.isPresent());
-        verify(commentRepository).save(existingComment);
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        assertEquals("error message", response.getBody());
     }
+
 
     @Test
     public void updateComment_NotFound() {
         Long id = 1L;
         Comment newComment = new Comment();
-        User currentUser = new User();
-
+        UserDetails userDetails = mock(UserDetails.class);
+        when(userDetails.getUsername()).thenReturn("user@example.com");
+        when(bindingResult.hasErrors()).thenReturn(false);
+        when(userService.getUserByEmail("user@example.com")).thenReturn(new ResponseEntity<>(new User(), HttpStatus.OK));
         when(commentRepository.findById(id)).thenReturn(Optional.empty());
 
-        Optional<Comment> updatedComment = commentService.updateComment(id, newComment, currentUser);
+        ResponseEntity<?> response = commentService.updateComment(id, newComment, bindingResult, userDetails);
 
-        assertFalse(updatedComment.isPresent());
+        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
     }
 
     @Test
     public void deleteComment_Success() {
         Long id = 1L;
         User currentUser = new User();
+        UserDetails userDetails = mock(UserDetails.class);
+        when(userDetails.getUsername()).thenReturn("user@example.com");
+        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(currentUser));
         Comment existingComment = new Comment();
         existingComment.setAuthor(currentUser);
-
         when(commentRepository.findById(id)).thenReturn(Optional.of(existingComment));
-        when(commentRepository.existsById(id)).thenReturn(true);
 
-        boolean result = commentService.deleteComment(id, currentUser);
+        ResponseEntity<Void> response = commentService.deleteComment(id, userDetails);
 
-        assertTrue(result);
+        assertEquals(HttpStatus.NO_CONTENT, response.getStatusCode());
         verify(commentRepository).deleteById(id);
     }
 
@@ -139,13 +176,14 @@ public class CommentServiceTest {
     @Test
     public void deleteComment_NotFound() {
         Long id = 1L;
-        User currentUser = new User();
-
+        UserDetails userDetails = mock(UserDetails.class);
+        when(userDetails.getUsername()).thenReturn("user@example.com");
+        when(userRepository.findByEmail("user@example.com")).thenReturn(Optional.of(new User()));
         when(commentRepository.findById(id)).thenReturn(Optional.empty());
 
-        boolean result = commentService.deleteComment(id, currentUser);
+        ResponseEntity<Void> response = commentService.deleteComment(id, userDetails);
 
-        assertFalse(result);
+        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
         verify(commentRepository, never()).deleteById(id);
     }
 }

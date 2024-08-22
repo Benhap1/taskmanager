@@ -4,13 +4,18 @@ import com.example.taskmanagement.model.Role;
 import com.example.taskmanagement.model.User;
 import com.example.taskmanagement.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.validation.BindingResult;
+import org.springframework.validation.ObjectError;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Service
 public class UserService {
@@ -27,7 +32,14 @@ public class UserService {
     @Autowired
     private JwtService jwtService;
 
-    public User registerUser(User user) {
+    public ResponseEntity<?> registerUser(User user, BindingResult bindingResult) {
+        if (bindingResult.hasErrors()) {
+            String errors = bindingResult.getAllErrors().stream()
+                    .map(ObjectError::getDefaultMessage)
+                    .collect(Collectors.joining(", "));
+            return new ResponseEntity<>(errors, HttpStatus.BAD_REQUEST);
+        }
+
         if (user.getRole() == null) {
             user.setRole(Role.ASSIGNEE);
         } else {
@@ -36,43 +48,55 @@ public class UserService {
             }
         }
         user.setPassword(passwordEncoder.encode(user.getPassword()));
-        return userRepository.save(user);
+        User createdUser = userRepository.save(user);
+        return new ResponseEntity<>(createdUser, HttpStatus.CREATED);
     }
 
-    public Optional<String> loginUser(String email, String password) {
+    public ResponseEntity<?> loginUser(String email, String password) {
         try {
             Authentication authentication = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(email, password)
             );
             String jwt = jwtService.generateToken((UserDetails) authentication.getPrincipal());
-            return Optional.of(jwt);
+            return ResponseEntity.ok(jwt);
         } catch (Exception e) {
-            return Optional.empty();
+            return new ResponseEntity<>("Invalid credentials", HttpStatus.UNAUTHORIZED);
         }
     }
 
-    public Optional<User> getUserById(Long id) {
-        return userRepository.findById(id);
+    public ResponseEntity<User> getUserById(Long id) {
+        Optional<User> user = userRepository.findById(id);
+        return user.map(ResponseEntity::ok)
+                .orElseGet(() -> new ResponseEntity<>(HttpStatus.NOT_FOUND));
     }
 
-    public Optional<User> getUserByEmail(String email) {
-        return userRepository.findByEmail(email);
+    public ResponseEntity<User> getUserByEmail(String email) {
+        Optional<User> user = userRepository.findByEmail(email);
+        return user.map(ResponseEntity::ok)
+                .orElseGet(() -> new ResponseEntity<>(HttpStatus.NOT_FOUND));
     }
 
-    public Optional<User> updateUser(Long id, User user) {
+    public ResponseEntity<?> updateUser(Long id, User user, BindingResult bindingResult) {
+        if (bindingResult.hasErrors()) {
+            String errors = bindingResult.getAllErrors().stream()
+                    .map(ObjectError::getDefaultMessage)
+                    .collect(Collectors.joining(", "));
+            return new ResponseEntity<>(errors, HttpStatus.BAD_REQUEST);
+        }
+
         if (userRepository.existsById(id)) {
             user.setId(id);
-            return Optional.of(userRepository.save(user));
+            User updatedUser = userRepository.save(user);
+            return new ResponseEntity<>(updatedUser, HttpStatus.OK);
         }
-        return Optional.empty();
+        return new ResponseEntity<>(HttpStatus.NOT_FOUND);
     }
 
-    public boolean deleteUser(Long id) {
+    public ResponseEntity<Void> deleteUser(Long id) {
         if (userRepository.existsById(id)) {
             userRepository.deleteById(id);
-            return true;
+            return new ResponseEntity<>(HttpStatus.NO_CONTENT);
         }
-        return false;
+        return new ResponseEntity<>(HttpStatus.NOT_FOUND);
     }
 }
-
